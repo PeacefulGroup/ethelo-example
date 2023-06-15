@@ -5,12 +5,75 @@ import axios, {
 } from "axios";
 import crypto from "crypto";
 import moment from "moment";
+import * as CryptoJS from "crypto-js";
 
 const env = {
   ETHELO_URL: "https://beta.ethelo.net",
   ETHELO_ACCESS_KEY: "Big-Green-Dao-2023",
   ETHELO_SECRET_KEY:
     "mFBR6rGxa13RSDo6h4aFeBasoOaO49WWQ3pk786SGAgsu5l9Fek7z7dlCxi+fAumjTQkQ2ASQDo9V0QCjyTn7w==",
+};
+
+const signing = {
+  // eslint-disable-next-line @typescript-eslint/no-implicit-any
+  signedHeaders(url, data, accessId, secretKey) {
+    var dataHash = CryptoJS.SHA256(JSON.stringify(data));
+    dataHash = CryptoJS.enc.Base64.stringify(dataHash);
+
+    var dateString =
+      moment().utc().format("ddd, DD MMM YYYY HH:mm:ss") + " GMT";
+
+    var contentString = [
+      "POST",
+      "application/json",
+      dataHash,
+      url,
+      dateString,
+    ].join(",");
+
+    var hmacSig = CryptoJS.HmacSHA256(contentString, secretKey).toString(
+      CryptoJS.enc.Base64
+    );
+
+    var headers = {
+      "X-Authorization-Content-SHA256": dataHash,
+      Authorization: `APIAuth-HMAC-SHA256 ${accessId}:${hmacSig}`,
+    };
+    return headers;
+  },
+  signingRequest() {
+    let endpoint = "/api/v2/third_party/create.json";
+    let accessId = "Big-Green-Dao-2023";
+    let secretKey =
+      "mFBR6rGxa13RSDo6h4aFeBasoOaO49WWQ3pk786SGAgsu5l9Fek7z7dlCxi+fAumjTQkQ2ASQDo9V0QCjyTn7w==";
+    let url = "https://beta.ethelo.net";
+    let timestamp = moment().valueOf();
+    let data = {
+      user: {
+        name: `Test ${timestamp}`,
+        email: `test${timestamp}@test.com`,
+        send_email: false,
+        decision_subdomain: "quadresults",
+      },
+    };
+
+    // let request = $.ajax({
+    //   url: url + endpoint,
+    //   type: "POST",
+    //   dataType: "json",
+    //   data: JSON.stringify(data),
+    //   contentType: "application/json",
+    //   crossDomain: true,
+    //   headers: this.signedHeaders(endpoint, data, accessId, secretKey),
+    // });
+
+    // request.fail((xhr, textStatus, error) => {
+    //   //jshint unused:false
+    //   console.log(error);
+    // });
+
+    // return request;
+  },
 };
 
 const apiClient: AxiosInstance = axios.create({
@@ -37,54 +100,41 @@ const authenticatedHeaders = (
   uri: string,
   requestBody: Record<string, string | boolean>
 ): RawAxiosRequestHeaders => {
-  const secret = Buffer.from(env.ETHELO_SECRET_KEY).toString("base64");
+  // const secret = Buffer.from(env.ETHELO_SECRET_KEY).toString("base64");
+  const secret = env.ETHELO_SECRET_KEY;
   const authContent = JSON.stringify(requestBody);
-
-  // Create a SHA256 hash of the request body
   const contentSha256 = crypto
     .createHash("sha256")
     .update(authContent)
     .digest("base64");
 
-  // Or MD5 hash
-  const contentMd5 = crypto
-    .createHash("md5")
-    .update(authContent)
-    .digest("base64");
   const date = moment().utc().format("ddd, DD MMM YYYY HH:mm:ss") + " GMT";
 
-  const contentType = "application/json";
   const canonicalString = [
     "POST",
-    contentType,
-    // contentMd5,
+    "application/json",
     contentSha256,
     `/api/v2/third_party${uri}`,
     date,
-  ].join();
+  ].join(",");
 
   const authHeaderSecret = crypto
-    .createHmac("sha1", secret)
+    .createHmac("sha256", secret)
     .update(canonicalString)
     .digest("base64");
 
   const headers: RawAxiosRequestHeaders = {
-    "X-HMAC-SHA256": contentSha256,
-    // "X-HMAC-MD5": contentMd5,
-    DATE: date,
-    Authorization: `APIAuth ${env.ETHELO_ACCESS_KEY}:${authHeaderSecret}`,
-    "Content-Type": contentType,
+    "X-Authorization-Content-SHA256": contentSha256,
+    Authorization: `APIAuth-HMAC-SHA256 ${env.ETHELO_ACCESS_KEY}:${authHeaderSecret}`,
+    // DATE: date,
+    // "Content-Type": "application/json",
   };
 
-  console.log("authContent", authContent);
-  console.log("contentSha256", contentSha256);
-  console.log("contentMd5", contentMd5);
+  // console.log("authContent", authContent);
+  // console.log("contentSha256", contentSha256);
   console.log("canonical_string", canonicalString);
-  console.log("authHeaderSecret", authHeaderSecret);
-  console.log("headers", headers);
-
-  // canonical_string = "#{http method},#{content-type},#{X-Authorization-Content-SHA256},#{request URI},#{timestamp}"
-  // const canonical = `POST,application/json,${authContent},/api/v2/third_party${uri},${new Date().toUTCString()}`;
+  // console.log("authHeaderSecret", authHeaderSecret);
+  // console.log("headers", headers);
 
   return headers;
 };
@@ -109,20 +159,25 @@ export const createAccount = async ({
     "user[send_email]": send_email,
     "user[decision_subdomain]": decision_subdomain,
   };
-  return await apiClient.post("/create", requestBody, {
-    headers: authenticatedHeaders("/create", requestBody),
+  console.log(requestBody);
+  return await apiClient.post("/create.json", JSON.stringify(requestBody), {
+    headers: authenticatedHeaders("/create.json", requestBody),
   });
 };
 async function asyncCall() {
   try {
+    let timestamp = moment().valueOf();
     const result = await createAccount({
-      email: "duke@worldtree.io",
-      name: "WT",
-      decision_subdomain: "bgd-gr15-test",
+      name: `Test ${timestamp}`,
+      email: `test${timestamp}@test.com`,
+      // email: "duke@worldtree.io",
+      // name: "WT",
+      decision_subdomain: "quadresults",
     });
     console.log(result);
-  } catch (error) {
+  } catch (error: any) {
     console.error("Error:", error);
+    console.error(error.response.data.errors);
   }
 }
 
